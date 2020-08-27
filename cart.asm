@@ -16,6 +16,8 @@ P0HEIGHT equ 9
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 P0x	byte	; P0 x
 P0y	byte	; P0 y
+P0xdir	byte	; x velocity + / - / 0
+P0ydir	byte	; y velocity + / - / 0
 P0spritePtr	ds	; y-adjusted sprite pointer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variables
@@ -32,6 +34,11 @@ Start:
 	lda #50
 	sta P0x
 	sta P0y
+
+	lda #1
+	sta P0ydir
+	sta P0xdir
+
 ;;; Set high byte of P0spritePtr (low byte updated per frame)
 	lda #>P0bitmap
 	sta P0spritePtr+1
@@ -56,16 +63,58 @@ StartFrame:
 
 ;;;;  start game vblank logic
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; P0 horizontal position
-	ldx #0
+
+;;; calculate P0 x position
 	lda P0x
+	beq P0xLow
+	cmp #152	; 160 pixels minus 8-wide sprite
+	beq P0xHigh
+	lda P0xdir
+	jmp P0xMove
+P0xLow:
+	lda #1
+	sta P0xdir
+	jmp P0xMove
+P0xHigh:
+	lda #-1
+	sta P0xdir
+P0xMove:
+	clc
+	adc P0x
+	sta P0x
+;;; update horizontal position
+	ldx #0
+;	lda P0x ; not needed if already in A
 	jsr PosObject
+	sta WSYNC
+	sta HMOVE
+
+;;; update P0 y position
+	lda P0y
+	cmp #8
+	beq P0yLow
+	cmp #192
+	beq P0yHigh
+	lda P0ydir
+	jmp P0yMove
+P0yLow:
+	lda #1
+	sta P0ydir
+	jmp P0yMove
+P0yHigh:
+	lda #-1
+	sta P0ydir
+P0yMove:
+	clc
+	adc P0y
+	sta P0y
+	
 ;;; P0 y pointer
 	lda #<P0bitmap+P0HEIGHT
 	sec
 	sbc P0y
 	sta P0spritePtr
-
+;;; clear 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end game vblank logic
 
@@ -98,7 +147,6 @@ StartFrame:
 	lda (P0spritePtr),Y	; 5
 	sta GRP0	; 3
 .NoDrawP0
-
 	sta WSYNC	; wait for next scanline
 	dey	; y--
 	bne .LoopVisible	; go back until x = 0
@@ -114,6 +162,8 @@ StartFrame:
 
 ;;;;  start game overscan logic
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	lda #0
+	sta GRP0
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end game overscan logic
@@ -133,6 +183,7 @@ StartFrame:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; PosObject from https://www.biglist.com/lists/stella/archives/200403/msg00260.html
+;;; but that didn't work right so traced back to https://www.biglist.com/lists/stella/archives/200311/msg00039.html
 ; Positions an object horizontally
 ; Inputs: A = Desired position.
 ; X = Desired object to be positioned (0-5). *jh* (P0, P1, M0, M1, Ball)
@@ -143,25 +194,26 @@ StartFrame:
 ; Y = the "remainder" of the division by 15 minus an additional 15.
 ; control is returned on cycle 6 of the next scanline.
 PosObject SUBROUTINE
-
 	STA WSYNC ; 00 Sync to start of scanline.
 	SEC ; 02 Set the carry flag so no borrow will be applied during the division.
 .divideby15
 	SBC #15 ; 04 ; Waste the necessary amount of time dividing X-pos by 15!
 	BCS .divideby15 ; 06/07 - 11/16/21/26/31/36/41/46/51/56/61/66
 
-	TAY ; 08 ; At this point the value in A is -1 to -15. In this code I use a table
-; to quickly convert that value to the fine adjust value needed.
-	LDA fineAdjustTable,Y ; 13 -> Consume 5 cycles by guaranteeing we cross a page boundary
-; In your own code you may wish to consume only 4.
-	STA HMP0,X ; 17 Store the fine adjustment value.
-	STA RESP0,X ; 21/ 26/31/36/41/46/51/56/61/66/71 - Set the rough position.
+	EOR #$0F
+	ASL
+	ASL
+	ASL
+	ASL
 
+	ADC #$90
+	STA RESP0,X
 	STA WSYNC
+	STA HMP0,X
+
 	RTS
 
-;;; end PosObject from https://www.biglist.com/lists/stella/archives/200403/msg00260.html
-;;; (see link for alternate way without lookup table)
+;;; end PosObject from https://www.biglist.com/lists/stella/archives/200311/msg00039.html
 	
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -169,6 +221,7 @@ PosObject SUBROUTINE
 
 ;;;;  start ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	org $f0f6
 P0bitmap:
 	byte #%00000000
 	byte #%00101001
@@ -193,28 +246,6 @@ P0color:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end ROM lookup tables
-
-;;; fine adjustment for PosObject
-;;; some explanation on "negative index" is here: 
-;;; - https://www.randomterrain.com/atari-2600-memories-tutorial-andrew-davie-24.html
-
-fineAdjustBegin
-	DC.B %01110000; Left 7 
-	DC.B %01100000; Left 6
-	DC.B %01010000; Left 5
-	DC.B %01000000; Left 4
-	DC.B %00110000; Left 3
-	DC.B %00100000; Left 2
-	DC.B %00010000; Left 1
-	DC.B %00000000; No movement.
-	DC.B %11110000; Right 1
-	DC.B %11100000; Right 2
-	DC.B %11010000; Right 3
-	DC.B %11000000; Right 4
-	DC.B %10110000; Right 5
-	DC.B %10100000; Right 6
-	DC.B %10010000; Right 7
-fineAdjustTable EQU fineAdjustBegin - %11110001 ; NOTE: %11110001 = -15
 
 ;;; Complete to 4kB
 	org $FFFC
