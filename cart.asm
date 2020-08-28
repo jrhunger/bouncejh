@@ -64,6 +64,57 @@ StartFrame:
 ;;;;  start game vblank logic
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; handle input
+CheckP0Up:
+	lda #%00010000
+	bit SWCHA
+	bne CheckP0Down
+	lda #1
+	clc
+	adc P0ydir
+	sta P0ydir
+	lda #%00000010	; 0 or 1 are ok, 2 is not
+	bit P0ydir
+	beq CheckP0Down	; if it's not 2 we are good
+	lda #1		; if it is 2 set to 1
+	sta P0ydir
+CheckP0Down:
+	lda #%00100000
+	bit SWCHA
+	bne CheckP0Right
+	lda #%00000010	; set for -1, not for 0 or 1
+	bit P0ydir
+	bne CheckP0Right; -1 is the lowest so don't change it
+	lda P0ydir
+	clc
+	adc #-1
+	sta P0ydir
+CheckP0Right:
+	lda #%10000000
+	bit SWCHA
+	bne CheckP0Left
+	lda #1
+	clc
+	adc P0xdir
+	sta P0xdir
+	lda #%00000010
+	bit P0xdir
+	beq CheckP0Left
+	lda #1
+	sta P0xdir
+CheckP0Left:
+	lda #%01000000
+	bit SWCHA
+	bne NoInput
+	lda #-1
+	lda #%00000010	; set for -1, not for 0 or 1
+	bit P0xdir
+	bne NoInput	; -1 is the lowest so dont change
+	lda P0xdir
+	clc
+	adc #-1
+	sta P0xdir
+NoInput:
 ;;; calculate P0 x position
 	lda P0x
 	beq P0xLow
@@ -221,7 +272,7 @@ PosObject SUBROUTINE
 
 ;;;;  start ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	org $f0f6
+	org $fef6
 P0bitmap:
 	byte #%00000000
 	byte #%00101001
@@ -232,17 +283,6 @@ P0bitmap:
 	byte #%00101001
 	byte #%00101001
 	byte #%11101001
-
-P0color:
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end ROM lookup tables
