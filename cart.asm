@@ -81,7 +81,10 @@ StartFrame:
 	ldy #192	; counter
 .LoopVisible:
 ;;; for rainbow background
-	sty COLUBK	; set bg color to loop var
+	tya
+	asl
+	ora #%00001000	; don't use luminance < 8
+	sta COLUBK	; set bg color to loop var
 
 ;;; draw P0
 	sec	; 2 set carry
