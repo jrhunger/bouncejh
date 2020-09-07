@@ -19,6 +19,7 @@ P0y	byte	; P0 y
 P0xdir	byte	; x velocity + / - / 0
 P0ydir	byte	; y velocity + / - / 0
 P0spritePtr	ds	; y-adjusted sprite pointer
+CTRLPF_shadow	byte	; track content of CTRLPF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variables
 
@@ -42,6 +43,14 @@ Start:
 ;;; Set high byte of P0spritePtr (low byte updated per frame)
 	lda #>P0bitmap
 	sta P0spritePtr+1
+
+;;; Initialize CTRLPF
+	; D0 = REF (reflect playfield)
+	; D1 - SCORE (color left/right of playfield like P0/P1)
+	; D2 - PFP (1 playfield over players)
+	; D4/D5 - Ball Size 00 = 1 / 01 = 2 / 10 = 4 / 11 = 8
+	lda #000000001	; reflect playfield
+	sta CTRLPF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variable initialization
 
@@ -117,8 +126,9 @@ CheckP0Left:
 NoInput:
 ;;; calculate P0 x position
 	lda P0x
+	cmp #4
 	beq P0xLow
-	cmp #152	; 160 pixels minus 8-wide sprite
+	cmp #156	; 160 pixels minus 1/2 of 4-wide sprite
 	beq P0xHigh
 	lda P0xdir
 	jmp P0xMove
@@ -165,7 +175,13 @@ P0yMove:
 	sec
 	sbc P0y
 	sta P0spritePtr
-;;; clear 
+
+;;; Calculate playfield
+	lda #0
+	sta COLUPF
+	lda #%00010000
+	sta PF0
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end game vblank logic
 
