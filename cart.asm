@@ -19,6 +19,7 @@ P0y	byte	; P0 y
 P0xdir	byte	; x velocity + / - / 0
 P0ydir	byte	; y velocity + / - / 0
 P0spritePtr	ds	; y-adjusted sprite pointer
+CTRLPF_shadow	byte	; track content of CTRLPF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variables
 
@@ -42,6 +43,14 @@ Start:
 ;;; Set high byte of P0spritePtr (low byte updated per frame)
 	lda #>P0bitmap
 	sta P0spritePtr+1
+
+;;; Initialize CTRLPF
+	; D0 = REF (reflect playfield)
+	; D1 - SCORE (color left/right of playfield like P0/P1)
+	; D2 - PFP (1 playfield over players)
+	; D4/D5 - Ball Size 00 = 1 / 01 = 2 / 10 = 4 / 11 = 8
+	lda #000000001	; reflect playfield
+	sta CTRLPF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variable initialization
 
@@ -64,10 +73,62 @@ StartFrame:
 ;;;;  start game vblank logic
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;; handle input
+CheckP0Up:
+	lda #%00010000
+	bit SWCHA
+	bne CheckP0Down
+	lda #1
+	clc
+	adc P0ydir
+	sta P0ydir
+	lda #%00000010	; 0 or 1 are ok, 2 is not
+	bit P0ydir
+	beq CheckP0Down	; if it's not 2 we are good
+	lda #1		; if it is 2 set to 1
+	sta P0ydir
+CheckP0Down:
+	lda #%00100000
+	bit SWCHA
+	bne CheckP0Right
+	lda #%00000010	; set for -1, not for 0 or 1
+	bit P0ydir
+	bne CheckP0Right; -1 is the lowest so don't change it
+	lda P0ydir
+	clc
+	adc #-1
+	sta P0ydir
+CheckP0Right:
+	lda #%10000000
+	bit SWCHA
+	bne CheckP0Left
+	lda #1
+	clc
+	adc P0xdir
+	sta P0xdir
+	lda #%00000010
+	bit P0xdir
+	beq CheckP0Left
+	lda #1
+	sta P0xdir
+CheckP0Left:
+	lda #%01000000
+	bit SWCHA
+	bne NoInput
+	lda #-1
+	lda #%00000010	; set for -1, not for 0 or 1
+	bit P0xdir
+	bne NoInput	; -1 is the lowest so dont change
+	lda P0xdir
+	clc
+	adc #-1
+	sta P0xdir
+NoInput:
 ;;; calculate P0 x position
 	lda P0x
+	cmp #4
 	beq P0xLow
-	cmp #152	; 160 pixels minus 8-wide sprite
+	cmp #156	; 160 pixels minus 1/2 of 4-wide sprite
 	beq P0xHigh
 	lda P0xdir
 	jmp P0xMove
@@ -114,42 +175,87 @@ P0yMove:
 	sec
 	sbc P0y
 	sta P0spritePtr
-;;; clear 
+
+;;; Check collisions
+	lda #%10000000
+	bit CXP0FB	; bit 7 = P0/PF
+	beq NoP0Collision
+	lda #$30
+	sta COLUPF
+	jmp DoneCollision
+NoP0Collision
+	lda #0
+	sta COLUPF
+DoneCollision
+	sta CXCLR	; clear collisions
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end game vblank logic
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;  start kernel prep
+	ldy #192	; counter
+;;;;  end kernel prep
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;; Wait for rest of VBLANK
 .VblankWaitLoop
 	lda INTIM 	; load timer interrupt
 	bne	.VblankWaitLoop
 	sta WSYNC 	; wait for next wsync
-	sta VBLANK	; turn off VBlank
+	sta VBLANK	; turn off VBlank. A is zero because of bne above
 
 ;;;; kernel (192 visible scan lines)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	ldy #192	; counter
 .LoopVisible:
-;;; for rainbow background
-	sty COLUBK	; set bg color to loop var
+	sta WSYNC	; wait for scanline at beginning so end-of
+			; loop logic is pre-scanline
+;;; for rainbow background (based on y)
+	tya		; 2| get scan line
+	asl		; 2| 192 scan lines, 128 unique colors (last bit unused)
+			;    x2 means we see all of them with some repeats
+	ora #%00001000	; 2| don't use luminance < 8
+			;    (this makes a tight repeat.. if only i could asl the right nibble)
+	sta COLUBK	; 3| set bg color to result
+;;; playfield
+	cpy #184		; 2| compare Y to 184
+	beq PlayfieldMiddle	; 2/3/4| Y = 184 - change to bottom/top edge
+	cpy #8			; 2| compare Y to 8
+	beq PlayfieldTopBottom	; 2/3/4| Y = 8 - change to open middle
+	jmp EndPlayfield	; 3|
+PlayfieldMiddle
+	lda #%00010000		; 2|
+	sta PF0			; 3|
+	lda #0			; 2|
+	sta PF1			; 3|
+	sta PF2			; 3|
+	jmp EndPlayfield	; 3|
+PlayfieldTopBottom	
+	lda #$FF		; 2|
+	sta PF0			; 3|
+	sta PF1			; 3|
+	sta PF2			; 3|
+EndPlayfield
+
 
 ;;; draw P0
-	sec	; 2 set carry
-	tya	; 2
-	sbc P0y	; 3
-	adc P0HEIGHT	; 2
+	sec		; 2| set carry
+	tya		; 2|
+	sbc P0y		; 3|
+	adc P0HEIGHT	; 2|
 	bcs .DrawP0
 
-	nop	; 2
-	nop	; 2
-	sec	; 2
-	bcs .NoDrawP0	; 3
+	nop		; 2|
+	nop		; 2|
+	sec		; 2|
+	bcs .NoDrawP0	; 3|
 .DrawP0
-	lda (P0spritePtr),Y	; 5
-	sta GRP0	; 3
+	lda (P0spritePtr),Y	; 5|
+	sta GRP0	; 3|
 .NoDrawP0
-	sta WSYNC	; wait for next scanline
-	dey	; y--
-	bne .LoopVisible	; go back until x = 0
+	dey		; 2| y--
+	bne .LoopVisible	; 2/3/4| go back until x = 0
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; end kernel
 
@@ -221,7 +327,7 @@ PosObject SUBROUTINE
 
 ;;;;  start ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	org $f0f6
+	org $fef6
 P0bitmap:
 	byte #%00000000
 	byte #%00101001
@@ -232,17 +338,6 @@ P0bitmap:
 	byte #%00101001
 	byte #%00101001
 	byte #%11101001
-
-P0color:
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
-	byte #$00
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end ROM lookup tables
