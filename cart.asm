@@ -176,50 +176,86 @@ P0yMove:
 	sbc P0y
 	sta P0spritePtr
 
-;;; Calculate playfield
+;;; Check collisions
+	lda #%10000000
+	bit CXP0FB	; bit 7 = P0/PF
+	beq NoP0Collision
+	lda #$30
+	sta COLUPF
+	jmp DoneCollision
+NoP0Collision
 	lda #0
 	sta COLUPF
-	lda #%00010000
-	sta PF0
+DoneCollision
+	sta CXCLR	; clear collisions
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end game vblank logic
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;  start kernel prep
+	ldy #192	; counter
+;;;;  end kernel prep
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;;; Wait for rest of VBLANK
 .VblankWaitLoop
 	lda INTIM 	; load timer interrupt
 	bne	.VblankWaitLoop
 	sta WSYNC 	; wait for next wsync
-	sta VBLANK	; turn off VBlank
+	sta VBLANK	; turn off VBlank. A is zero because of bne above
 
 ;;;; kernel (192 visible scan lines)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	ldy #192	; counter
 .LoopVisible:
-;;; for rainbow background
-	tya
-	asl
-	ora #%00001000	; don't use luminance < 8
-	sta COLUBK	; set bg color to loop var
+	sta WSYNC	; wait for scanline at beginning so end-of
+			; loop logic is pre-scanline
+;;; for rainbow background (based on y)
+	tya		; 2| get scan line
+	asl		; 2| 192 scan lines, 128 unique colors (last bit unused)
+			;    x2 means we see all of them with some repeats
+	ora #%00001000	; 2| don't use luminance < 8
+			;    (this makes a tight repeat.. if only i could asl the right nibble)
+	sta COLUBK	; 3| set bg color to result
+;;; playfield
+	cpy #184		; 2| compare Y to 184
+	beq PlayfieldMiddle	; 2/3/4| Y = 184 - change to bottom/top edge
+	cpy #8			; 2| compare Y to 8
+	beq PlayfieldTopBottom	; 2/3/4| Y = 8 - change to open middle
+	jmp EndPlayfield	; 3|
+PlayfieldMiddle
+	lda #%00010000		; 2|
+	sta PF0			; 3|
+	lda #0			; 2|
+	sta PF1			; 3|
+	sta PF2			; 3|
+	jmp EndPlayfield	; 3|
+PlayfieldTopBottom	
+	lda #$FF		; 2|
+	sta PF0			; 3|
+	sta PF1			; 3|
+	sta PF2			; 3|
+EndPlayfield
+
 
 ;;; draw P0
-	sec	; 2 set carry
-	tya	; 2
-	sbc P0y	; 3
-	adc P0HEIGHT	; 2
+	sec		; 2| set carry
+	tya		; 2|
+	sbc P0y		; 3|
+	adc P0HEIGHT	; 2|
 	bcs .DrawP0
 
-	nop	; 2
-	nop	; 2
-	sec	; 2
-	bcs .NoDrawP0	; 3
+	nop		; 2|
+	nop		; 2|
+	sec		; 2|
+	bcs .NoDrawP0	; 3|
 .DrawP0
-	lda (P0spritePtr),Y	; 5
-	sta GRP0	; 3
+	lda (P0spritePtr),Y	; 5|
+	sta GRP0	; 3|
 .NoDrawP0
-	sta WSYNC	; wait for next scanline
-	dey	; y--
-	bne .LoopVisible	; go back until x = 0
+	dey		; 2| y--
+	bne .LoopVisible	; 2/3/4| go back until x = 0
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; end kernel
 
