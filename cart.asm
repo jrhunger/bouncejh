@@ -49,7 +49,7 @@ Start:
 	; D1 - SCORE (color left/right of playfield like P0/P1)
 	; D2 - PFP (1 playfield over players)
 	; D4/D5 - Ball Size 00 = 1 / 01 = 2 / 10 = 4 / 11 = 8
-	lda #000000001	; reflect playfield
+	lda #000000000	; don't reflect playfield
 	sta CTRLPF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variable initialization
@@ -209,43 +209,29 @@ DoneCollision
 ;;;; kernel (192 visible scan lines)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 .LoopVisible:
-	sta WSYNC	; wait for scanline at beginning so end-of
-			; loop logic is pre-scanline
-;;; for rainbow background (based on y)
-	tya		; 2| get scan line
-	asl		; 2| 192 scan lines, 128 unique colors (last bit unused)
+	sta WSYNC	; 3|0 wait for scanline at beginning so end-of
+			;    loop logic is pre-scanline
+;;; background (9)
+;	tya		; 2| get scan line
+;	asl		; 2| 192 scan lines, 128 unique colors (last bit unused)
 			;    x2 means we see all of them with some repeats
-	ora #%00001000	; 2| don't use luminance < 8
+;	ora #%00001000	; 2| don't use luminance < 8
 			;    (this makes a tight repeat.. if only i could asl the right nibble)
-	sta COLUBK	; 3| set bg color to result
-;;; playfield
-	cpy #184		; 2| compare Y to 184
-	beq PlayfieldMiddle	; 2/3/4| Y = 184 - change to bottom/top edge
-	cpy #8			; 2| compare Y to 8
-	beq PlayfieldTopBottom	; 2/3/4| Y = 8 - change to open middle
-	jmp EndPlayfield	; 3|
-PlayfieldMiddle
-	lda #%00010000		; 2|
-	sta PF0			; 3|
-	lda #0			; 2|
-	sta PF1			; 3|
-	sta PF2			; 3|
-	jmp EndPlayfield	; 3|
-PlayfieldTopBottom	
-	lda #$FF		; 2|
-	sta PF0			; 3|
-	sta PF1			; 3|
-	sta PF2			; 3|
-EndPlayfield
-
-
-;;; draw P0
+	sty COLUBK	; 3| (9) set bg color to result
+; 12 
+;;; left playfield (21)
+	lda pf1l,Y	; 4|
+	sta PF1		; 3| 	after 65, before 28
+	lda pf2l,Y	; 4|
+	sta PF2		; 3|	after  0, before 38
+; 30
+;;; draw P0 (21)
 	sec		; 2| set carry
 	tya		; 2|
 	sbc P0y		; 3|
-	adc P0HEIGHT	; 2|
-	bcs .DrawP0
-
+	adc P0HEIGHT	; 3|
+	bcs .DrawP0	; 2/3|
+;
 	nop		; 2|
 	nop		; 2|
 	sec		; 2|
@@ -254,6 +240,20 @@ EndPlayfield
 	lda (P0spritePtr),Y	; 5|
 	sta GRP0	; 3|
 .NoDrawP0
+; 51
+
+;;; right playfield (21)
+	lda pf0r,Y	; 4|
+	sta PF0		; 3|	after 28, before 49
+	lda pf1r,Y	; 4|
+	sta PF1		; 3| 	after 39, before 54
+	lda pf2r,Y	; 4|
+	sta PF2		; 3|	after 49, before 65
+
+;;; left pf0
+	lda pf0l+1,Y	; 4|
+	sta PF0		; 3| 	after 54, before 22
+;;; end loop (cycles <= 67 here to avoid wrap)
 	dey		; 2| y--
 	bne .LoopVisible	; 2/3/4| go back until x = 0
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -327,6 +327,10 @@ PosObject SUBROUTINE
 
 ;;;;  start ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; playfield.h should set pfdata[lr]pf[012] labels and each table should be one page
+	include "playfield.h"
+
 	org $fef6
 P0bitmap:
 	byte #%00000000
