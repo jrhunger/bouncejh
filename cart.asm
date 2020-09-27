@@ -18,8 +18,9 @@ P0x	byte	; P0 x
 P0y	byte	; P0 y
 P0xdir	byte	; x velocity + / - / 0
 P0ydir	byte	; y velocity + / - / 0
-P0spritePtr	ds	; y-adjusted sprite pointer
 CTRLPF_shadow	byte	; track content of CTRLPF
+PFcolor	byte	; dynamic playfield color
+P0spritePtr	ds.w	; y-adjusted sprite pointer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;  end variables
 
@@ -39,6 +40,9 @@ Start:
 	lda #1
 	sta P0ydir
 	sta P0xdir
+
+	lda #0
+	sta PFcolor
 
 ;;; Set high byte of P0spritePtr (low byte updated per frame)
 	lda #>P0bitmap
@@ -180,7 +184,8 @@ P0yMove:
 	lda #%10000000
 	bit CXP0FB	; bit 7 = P0/PF
 	beq NoP0Collision
-	lda #$30
+	inc PFcolor	; add one to PFcolor
+	lda PFcolor
 	sta COLUPF
 	jmp DoneCollision
 NoP0Collision

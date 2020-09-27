@@ -7,6 +7,7 @@
   * change background color while colliding
 
 ## added asymmetrical playfield
+* increment playfield color with collisions
 * uses static fullscreen tables for each register
   * draw a screen at https://www.masswerk.at/vcs-tools/TinyPlayfieldEditor/
   * save as {filename}.tpe
